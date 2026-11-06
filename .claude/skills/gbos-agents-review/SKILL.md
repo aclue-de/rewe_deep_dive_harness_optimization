@@ -1,6 +1,6 @@
 ---
 name: gbos-agents-review
-description: Review an AGENTS.md against the REWE rule GBOS-AI-SWE-AGENTS-MD (size, plain Markdown, Always / Ask first / Never boundaries, failure protocol, no inferable content). Use when AGENTS.md is created or changed, when a hook reports GBOS violations, or when asked whether AGENTS.md is GBOS compliant.
+description: Review an AGENTS.md against the REWE rule GBOS-AI-SWE-AGENTS-MD (size, plain Markdown, Always / Ask first / Never boundaries, failure protocol, no inferable content). Use when AGENTS.md is created or changed, when the GBOS gate hook reports violations, or when asked whether AGENTS.md is GBOS compliant.
 ---
 
 # GBOS review for AGENTS.md

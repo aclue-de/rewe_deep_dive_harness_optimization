@@ -1,6 +1,6 @@
 ---
 name: gbos-reviewer
-description: Reviews AGENTS.md against the REWE rule GBOS-AI-SWE-AGENTS-MD and reports what is wrong, where, and what to do about it. Use when a hook reports GBOS violations in AGENTS.md, or when asked for a GBOS review of AGENTS.md. Read-only.
+description: Reviews AGENTS.md against the REWE rule GBOS-AI-SWE-AGENTS-MD and reports what is wrong, where, and what to do about it. Use when the GBOS gate hook reports violations in AGENTS.md, or when asked for a GBOS review of AGENTS.md. Read-only.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 skills:
