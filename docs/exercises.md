@@ -4,7 +4,7 @@ The exercises come from the slides of the deep dive; this repo provides what the
 
 | Chapter | Slide | Exercise | What it shows | Steps |
 |---|---|---|---|---|
-| 03 Instruction files | 25 "Exercise (discussion): Slim down an AGENTS.md" | Go through an AGENTS.md line by line: keep it, or move it to a hook, permission, skill or linter rule | Only what Claude cannot find out itself belongs in AGENTS.md | example on the slide; a longer one: [AGENTS.md](../AGENTS.md) |
+| 03 Instruction files | 25 "Exercise (discussion): Slim down an AGENTS.md" | Go through an AGENTS.md line by line: keep it, or move it to a hook, permission, skill or linter rule | Harness fixes can be realized with different tools| example on the slide |
 | 05 Hooks | 39 "Hands-on: four exercises" | 1 Protect files | A `PreToolUse` hook stops an edit before it happens: the API key never reaches the code | [1. Protect files](runbook.md#1-protect-files-pretooluse-exit-2) |
 | 05 Hooks | 39 | 2 Lint feedback | A `PostToolUse` hook reports problems back, Claude fixes them itself | [2. Lint feedback](runbook.md#2-lint-feedback-posttooluse) |
 | 05 Hooks | 39 | 3 Quality gate | A `Stop` hook: Claude may only say "done" when the tests are green | [3. Quality gate](runbook.md#3-quality-gate-stop) |
