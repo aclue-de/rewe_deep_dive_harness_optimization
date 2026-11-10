@@ -1,7 +1,0 @@
-Project facts (put back into the context after compaction from .claude/hooks/session_facts_to_preserve_after_compact.txt):
-- App: java backend/Server.java -> http://localhost:8000 (env var PORT overrides the port). It also serves frontend/.
-- API used by frontend/app.js: GET /api/items, POST /api/items {sku, name, quantity},
-  POST /api/items/{sku}/stock {delta}.
-- Demo data on every start: A-100 Apple juice 1 l (24), B-200 Wholegrain bread (10), C-300 Oat milk 1 l (0).
-- Items are kept in a TreeMap sorted by SKU; SKUs are compared exactly (case-sensitive).
-- Tickets: REWE-<number> lives in docs/tickets/<KEY>.md (simulates Jira).
