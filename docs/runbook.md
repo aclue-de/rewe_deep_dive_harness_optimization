@@ -4,14 +4,16 @@ Step by step: what to do, and how you know it worked. Run all commands from the 
 
 **Test it alone** runs your hook the way Claude Code does, without Claude:
 
-1. Claude Code starts the hook and writes a JSON to its stdin that says what is happening, e.g. "Claude wants to put `String apiKey = "demo-supplier-key-…";` into `Client.java`".
+1. Claude Code starts the hook and writes a JSON to its stdin that says what is happening, e.g. "the user sent the prompt `Implement REWE-101`".
 2. `echo '{…}'` prints exactly that JSON.
 3. `|` feeds it to the hook.
 4. `java .claude/hooks/<YourHook>.java` starts the hook; replace `<YourHook>` with your file name.
 
 The command is the same for everyone: Claude Code defines the JSON, and the expected exit code and JSON fields. Only the wording of your messages may differ.
 
-**Live** is the same check in a real Claude session: you give Claude a task that triggers your hook and watch what happens.
+**Live** is the same check in a real Claude session: you give Claude a task that triggers your hook and watch what happens. After every change to `.claude/settings.json`, restart `claude`; `/hooks` lists the active hooks.
+
+**Let Claude write the hook.** You don't have to type the code yourself. Tell Claude the event, what the hook should do, and that it should use `.claude/hooks/HookInput.java` (it reads the hook JSON: `field`, `flag`, `quote`). Then check the result with the commands below.
 
 Commands work in Git Bash and PowerShell. The exit code is `echo $?` in Git Bash and `$LASTEXITCODE` in PowerShell.
 
@@ -24,38 +26,80 @@ Commands work in Git Bash and PowerShell. The exit code is `echo $?` in Git Bash
 | `java backend/Server.java` | http://localhost:8000 shows the item list (keep the terminal open, stop with Ctrl+C) |
 | `claude` in a second terminal | Claude Code starts in this folder |
 
-## 1. Protect files (`PreToolUse`, exit 2)
+## 1. Ticket context (`UserPromptSubmit`, context)
 
-Build a hook that blocks edits that write an API key into code.
+Build a hook that finds ticket keys like `REWE-101` in your prompt and adds the ticket from `docs/tickets/<KEY>.md` to Claude's context. For `UserPromptSubmit`, whatever the hook prints on stdout becomes context. A missing ticket: one line telling Claude to ask you instead of guessing. No key: no output.
 
-**Test it alone.** With a key, the hook must block:
+The files in `docs/tickets/` stand in for Jira: in a real project the hook would fetch the ticket from the tracker instead (see [README: Tickets](../README.md#tickets-simulated-jira)).
 
-```bash
-echo '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"Client.java","new_string":"String apiKey = \"demo-supplier-key-0123456789\";"}}' | java .claude/hooks/<YourHook>.java
-```
-
-It worked if the exit code is `2` and stderr says why.
-
-Without a key, the hook must let the edit through:
+**Test it alone.** With a ticket key:
 
 ```bash
-echo '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"Client.java","new_string":"String apiKey = System.getenv(\"API_KEY\");"}}' | java .claude/hooks/<YourHook>.java
+echo '{"hook_event_name":"UserPromptSubmit","prompt":"Implement REWE-101"}' | java .claude/hooks/<YourHook>.java
 ```
 
-It worked if the exit code is `0` and there is no output.
+It worked if the exit code is `0` and stdout shows the ticket, including its acceptance criteria.
 
-**Live.**
-1. Enter the hook in `.claude/settings.json` (see README), so Claude Code runs it before every edit.
-2. Restart `claude`.
-3. Ask Claude: *"Move the constant SUPPLIER_API_KEY from backend/Server.java into a new class backend/Config.java."* The new file would contain the hard-coded key, so your hook must stop it.
+With `"prompt":"Implement REWE-999"` stdout must say that the ticket does not exist and Claude should ask. With `"prompt":"Fix the typo"` there must be no output.
+
+**Live.** Ask Claude: *"What are the acceptance criteria of REWE-101? Don't read any files."*
+
+It worked if Claude lists the criteria (quantity below 5 is "low stock", 0 is "out of stock", …) without opening `docs/tickets/REWE-101.md`: the hook already put the ticket in the context.
+
+## 2. Prompt secret guard (`UserPromptSubmit`, block)
+
+Build a hook that stops a prompt before it reaches the model when it contains an API key, an IBAN, a payment card number or a list of three or more e-mail addresses. Answer with JSON `{"decision": "block", "reason": "…"}` and exit `0`. Mask the value in the reason, e.g. `DE89...****`, so it is not repeated in full.
+
+Tip: check IBANs with the mod-97 checksum and card numbers with the Luhn checksum, so ordinary numbers don't match.
+
+**Test it alone.** With an IBAN (a public test IBAN):
+
+```bash
+echo '{"hook_event_name":"UserPromptSubmit","prompt":"Refund to DE89 3704 0044 0532 0130 00"}' | java .claude/hooks/<YourHook>.java
+```
+
+It worked if the exit code is `0`, stdout contains `"decision": "block"`, and the IBAN appears only masked.
+
+With `"prompt":"Mail a@example.com, b@example.com and c@example.com"` it must block too. With `"prompt":"Implement REWE-101"` or a single e-mail address there must be no output.
+
+**Live.** Send Claude the prompt *"Refund 20 EUR to DE89 3704 0044 0532 0130 00."*
 
 It worked if:
-- Claude reports that the edit was blocked and names the key,
-- the hard-coded key does not end up in any new file. Claude often retries with `System.getenv(...)`: that is the hook doing its job.
+- Claude Code shows your reason and the prompt is not sent,
+- Claude does not answer, and the prompt does not appear in the conversation.
 
-## 2. Lint feedback (`PostToolUse`)
+This is the only hook in the training that checks what **you** type, not what Claude does: the last point before data leaves your machine.
 
-Build a hook that runs `CheckAgentsMd.java` after an edit of `AGENTS.md` and feeds the findings back to Claude.
+## 3. Compact facts (`SessionStart`, compact)
+
+Build a hook that runs after compaction (matcher `compact`) and prints `.claude/hooks/session_facts_to_preserve_after_compact.txt`. For `SessionStart`, stdout becomes context. No `session_facts_to_preserve_after_compact.txt`: no output.
+
+`.claude/hooks/session_facts_to_preserve_after_compact.txt` already holds a few facts about the app that a summary tends to lose: the port, the API, the demo data. They are deliberately **not** in AGENTS.md (see [README: Session facts](../README.md#session-facts-exercise-3)). Add one line of your own that Claude cannot find anywhere in the repo, e.g. `- Code freeze for the warehouse app: every Friday from 12:00.` That line shows in the live check whether the hook works. Add it in your editor, not through Claude, and don't mention it in the chat: otherwise the summary may keep it anyway.
+
+**Test it alone.**
+
+```bash
+echo '{"hook_event_name":"SessionStart","source":"compact"}' | java .claude/hooks/<YourHook>.java
+```
+
+It worked if the exit code is `0` and stdout shows your facts. Rename `session_facts_to_preserve_after_compact.txt` and run again: there must be no output. Rename it back.
+
+**Live.**
+1. Work with Claude for a moment, e.g. *"Explain backend/Inventory.java."*
+2. Run `/compact`.
+3. Ask about your own line, e.g. *"When is the code freeze? Don't read any files."*
+
+It worked if Claude answers with your fact, e.g. `Friday from 12:00`. The line exists only in `session_facts_to_preserve_after_compact.txt`, so Claude can only know it because the hook put it back after compaction. For comparison: remove the hook from `settings.json`, restart `claude`, and repeat steps 1 to 3. Now Claude does not know it.
+
+Discuss:
+- Why aren't these facts in AGENTS.md? (AGENTS.md is reloaded after compaction anyway, and GBOS keeps out what Claude can find in the code.)
+- What would you really want back after a compaction in your project? Often it is the state of the current work: ticket, decisions, failed attempts.
+
+## 4. GBOS gate (`PostToolUse`)
+
+Build a hook that runs `CheckAgentsMd.java` after an edit of `AGENTS.md` and feeds the findings back to Claude, with the instruction to start the subagent `gbos-reviewer`.
+
+The AGENTS.md in this repo is GBOS compliant, so the hook has nothing to report until an edit breaks a rule.
 
 **Test it alone.**
 
@@ -63,51 +107,55 @@ Build a hook that runs `CheckAgentsMd.java` after an edit of `AGENTS.md` and fee
 echo '{"hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"AGENTS.md"}}' | java .claude/hooks/<YourHook>.java
 ```
 
-It worked if the exit code is `2` and stderr lists the `VIOLATION` lines. With `"file_path":"backend/Server.java"` the exit code must be `0`.
+It worked if the exit code is `0` and there is no output: the file passes the check.
 
-**Live.** Ask Claude: *"Add a rule about stock bookings to AGENTS.md."*
+Now break a rule: add the line `- Use @workspace to find context.` under `## Code` in `AGENTS.md` and run the command again. It worked if the exit code is `2` and stderr lists `VIOLATION … tool-specific syntax '@workspace'`. Undo the change with `git checkout -- AGENTS.md`.
+
+**Live.** Ask Claude: *"Add the rule 'Use @workspace to find context.' to the Code section of AGENTS.md."*
 
 It worked if:
 - Claude shows the findings after the edit,
 - if your hook message names the subagent `gbos-reviewer`, Claude offers it or starts it.
 
-PostToolUse runs **after** the edit, so the change is already in `AGENTS.md`. The hook cannot stop or undo it, it can only report problems; Claude fixes them with a second edit. Blocking before the edit is PreToolUse (exercise 1).
+Undo the change afterwards with `git checkout -- AGENTS.md`.
 
-## 3. Quality gate (`Stop`)
+The hook does not start the subagent itself, a hook can't. It tells Claude, and Claude decides. PostToolUse runs **after** the edit, so the change is already in `AGENTS.md`: the hook cannot stop or undo it, it can only report problems.
 
-Build a hook that lets Claude finish only when `java backend/InventoryTest.java` is green. When the tests are red, give Claude only the `FAIL` lines, not the ~250 debug lines.
+## A. Optional: Harness guard (`PreToolUse`, ask)
 
-**Test it alone.** With green tests:
+Build a hook that asks for your OK before Claude changes `.claude/settings*.json` or anything in `.claude/hooks/`, also when you asked for the change yourself. Answer with JSON `"permissionDecision": "ask"` and a `permissionDecisionReason` that starts with *"Are you sure you want Claude to change …?"* and lists the removed and added lines. Add a warning when a hook is removed or permissions get looser. Shell commands that delete, move, copy into or overwrite these files (`rm`, `mv`, `cp`, `>`, `Set-Content`, …) must ask too; reading them must pass. Register it with `"onFailure": "block"`.
+
+Do this exercise last: once it is active, every change to your other hooks asks first.
+
+**Test it alone.**
 
 ```bash
-echo '{"hook_event_name":"Stop","stop_hook_active":false}' | java .claude/hooks/<YourHook>.java
+echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm .claude/hooks/GbosGate.java"}}' | java .claude/hooks/<YourHook>.java
 ```
 
-It worked if the exit code is `0` and there is no output. With `"stop_hook_active":true` it must also let Claude stop, which is the loop guard.
+It worked if the exit code is `0` and stdout contains `"permissionDecision": "ask"`. With `"command":"cat .claude/settings.json"` there must be no output.
 
-**Live.** Ask Claude: *"Allow negative stock for backorders. Don't touch the tests."*
+**Live.** Ask Claude: *"Remove the GBOS gate hook from .claude/settings.json."*
 
-It worked if:
-- Claude cannot finish and names the failing test `stock never negative`,
-- Claude then fixes the code, or explains the conflict and asks you,
-- `git diff` shows only the code change, the tests are untouched.
+It worked if the confirmation dialog shows your question, the removed lines and the hook warning. Decline it.
 
-## 4. Fail closed (`PreToolUse`, JSON)
+Discuss: who guards the guards? An agent that can edit `settings.json` can delete the hook that blocks it.
 
-Rebuild the hook from exercise 1:
-- answer with JSON `"permissionDecision": "deny"` and exit `0`,
-- add `"onFailure": "block"` to it in `settings.json`.
+## B. Optional: Notify (`Notification`, async)
 
-**Test it alone.** Use the first command from exercise 1. It worked if the exit code is `0` and stdout contains `"permissionDecision": "deny"`.
+Build a hook that shows a desktop notification when Claude waits for you. Title: `Claude Code - <project folder>`, so you know which session is waiting; text: the event's `message`. Use only Java, so it works on Windows and macOS: e.g. `java.awt.SystemTray` on Windows, `osascript` on macOS (pass the text as arguments, never as code), a beep if nothing works. Register it with `"async": true`, so Claude doesn't wait for it.
 
-**Live.** What happens when the hook itself is broken? Normally Claude Code ignores a failing hook and lets the edit through (fail open). With `"onFailure": "block"` it blocks instead (fail closed).
+**Test it alone.**
 
-1. Break the hook: rename it, e.g. to `<YourHook>.java.off`. Now `java` cannot start it.
-2. Ask Claude: *"Add a comment to backend/Server.java."*
-   It worked if the edit is blocked with `failed; blocking because onFailure is "block"`.
-3. For comparison: remove the `onFailure` line, restart `claude`, ask again.
-   Now the edit goes through although the hook is broken. Undo it with `git checkout backend/Server.java`.
-4. Clean up: rename the hook back and put the `onFailure` line back.
+```bash
+echo '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}' | java .claude/hooks/<YourHook>.java
+```
+
+It worked if the exit code is `0` and a desktop notification appears. On macOS, the first one may need permission under System Settings > Notifications.
+
+**Live.** Ask Claude: *"Create a file notes.txt with the text hello."* Switch to another window before the permission prompt appears.
+
+It worked if a notification tells you that Claude needs your permission. Decline the edit afterwards.
 
 ## 5. Monitor the prompt cache (slide 45)
 
@@ -139,40 +187,4 @@ For the red case, change `item.quantity + delta < 0` in `backend/Inventory.java`
 1. Ask Claude: *"Run java backend/InventoryTest.java."* Claude gets all ~250 lines: it does not know your wrapper.
 2. Ask Claude: *"Run the tests with java bin/RunSilent.java tests java backend/InventoryTest.java."* It worked if the tool result is a single line `✓ tests`.
 
-To make Claude use the wrapper without being told, slide 48 adds a line to `CLAUDE.md`. That is only a request; exercise 7 enforces it with a hook.
-
-## 7. Enforce it with a hook (slide 49)
-
-Write a `PreToolUse` hook with matcher `Bash`. When the command is `java backend/InventoryTest.java`, reply with `updatedInput`: the whole `tool_input`, with the command replaced by `java bin/RunSilent.java tests java backend/InventoryTest.java`. Any other command: no output.
-
-**Test it alone.**
-
-```bash
-echo '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"java backend/InventoryTest.java","description":"Run the tests"}}' | java .claude/hooks/<YourHook>.java
-```
-
-It worked if:
-- stdout contains `"updatedInput"` with the wrapped command and still `"description": "Run the tests"`,
-- with `"command":"git status"` there is no output.
-
-**Live.** Ask Claude again, without mentioning the wrapper: *"Run java backend/InventoryTest.java."* It worked if Claude runs exactly that command, but the result is only `✓ tests`: the hook put the wrapper in front.
-
-Name the command in the prompt. With just *"Run the tests"* Claude may follow the messy AGENTS.md and try `mvn test`.
-
-## 8. Bonus: log every hook call
-
-Write a hook that appends the JSON from stdin unchanged as one line to `.harness/logs.jsonl` and exits `0`. Register it for `PreToolUse`, `PostToolUse` and `Stop`, without matcher, with `"async": true` so it does not slow Claude down. `.harness/` is in `.gitignore`.
-
-One JSON object per line (JSON Lines) instead of one `logs.json`: a line can simply be appended, a JSON array would have to be read and rewritten on every call.
-
-**Test it alone.**
-
-```bash
-echo '{"hook_event_name":"Stop","stop_hook_active":false}' | java .claude/hooks/<YourHook>.java
-```
-
-It worked if the exit code is `0`, there is no output, and `.harness/logs.jsonl` has one more line.
-
-**Live.** Restart `claude` and give Claude a small task, e.g. *"Run java backend/InventoryTest.java."*
-
-It worked if `.harness/logs.jsonl` shows one line per hook call: `PreToolUse` with `tool_input`, `PostToolUse` with `tool_response`, `Stop` with `stop_hook_active`. That is exactly the JSON your other hooks receive.
+To make Claude use the wrapper without being told, slide 48 adds a line to `CLAUDE.md`. That is only a request, not a rule: a `PreToolUse` hook with `updatedInput` could enforce it.
